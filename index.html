@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>SaaS 级自动生成 PPT 平台</title>
+    <!-- 引入 Luckysheet 的样式和脚本 -->
+    <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/luckysheet/dist/plugins/css/pluginsCss.css' />
+    <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/luckysheet/dist/plugins/plugins.css' />
+    <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/luckysheet/dist/css/luckysheet.css' />
+    <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/luckysheet/dist/assets/iconfont/iconfont.css' />
+    <script src="https://cdn.jsdelivr.net/npm/luckysheet/dist/plugins/js/plugin.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luckysheet/dist/luckysheet.umd.js"></script>
+    <!-- 引入用于解析本地 Excel 的 LuckyExcel 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/luckyexcel/dist/luckyexcel.umd.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; background-color: #f0f2f5; }
+        .header { padding: 15px 20px; background: #fff; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 100; position: relative; }
+        .header h2 { margin: 0; font-size: 20px; color: #333; }
+        .btn { padding: 10px 24px; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; transition: 0.3s; margin-left: 10px;}
+        .btn-primary { background-color: #1890ff; }
+        .btn-primary:hover { background-color: #40a9ff; }
+        #luckysheet { margin: 0; padding: 0; position: absolute; width: 100%; top: 60px; bottom: 0; left: 0; }
+        .loading-text { text-align: center; margin-top: 100px; color: #666; font-size: 18px; }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部导航栏 -->
+    <div class="header">
+        <h2>📊 PPT 自动生成控制台</h2>
+        <div>
+            <button class="btn btn-primary" onclick="generatePPT()" id="generateBtn">🚀 一键生成 PPT</button>
+        </div>
+    </div>
+
+    <!-- 在线 Excel 容器 -->
+    <div id="luckysheet">
+        <div class="loading-text">正在加载固定模板，请稍候...</div>
+    </div>
+
+    <script>
+        // 1. 页面加载时自动获取后端固定的 Excel 模板
+        $(function () {
+            // 向后端的 /api/template 接口请求模板文件
+            fetch('/api/template')
+                .then(response => {
+                    if(!response.ok) throw new Error("模板加载失败");
+                    return response.blob();
+                })
+                .then(blob => {
+                    let file = new File([blob], "template.xlsx", {type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+                    
+                    LuckyExcel.transformExcelToLucky(file, function(exportJson, luckysheetfile){
+                        document.getElementById('luckysheet').innerHTML = ''; // 清除加载提示
+                        luckysheet.create({
+                            container: 'luckysheet',
+                            lang: 'zh',
+                            data: exportJson.sheets,
+                            title: '系统固定模板'
+                        });
+                    });
+                })
+                .catch(error => {
+                    console.error(error);
+                    document.getElementById('luckysheet').innerHTML = '<div class="loading-text" style="color:red;">模板加载失败！请确保 template.xlsx 在后端文件夹中。</div>';
+                });
+        });
+
+        // 2. 点击生成按钮触发的函数
+        async function generatePPT() {
+            const btn = document.getElementById('generateBtn');
+            btn.innerText = "⏳ 正在拼命生成中...";
+            btn.disabled = true;
+
+            try {
+                let rawData = luckysheet.getSheetData();
+                let headers =[];
+                for(let c = 0; c < rawData[0].length; c++) {
+                    let cell = rawData[0][c];
+                    headers.push(cell ? cell.v : `列${c+1}`);
+                }
+                
+                let jsonData =[];
+                for(let r = 1; r < rawData.length; r++) {
+                    let rowHasData = false;
+                    let rowObj = {};
+                    for(let c = 0; c < headers.length; c++) {
+                        let cell = rawData[r][c];
+                        let value = cell ? cell.v : "";
+                        rowObj[headers[c]] = value;
+                        if(value !== "") rowHasData = true;
+                    }
+                    if(rowHasData) jsonData.push(rowObj);
+                }
+
+                const response = await fetch('/api/generate-ppt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(jsonData)
+                });
+
+                if (!response.ok) throw new Error("服务器生成出错！");
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = "智能生成报告.pptx"; 
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                
+                alert("🎉 生成成功！文件已开始下载。");
+
+            } catch (error) {
+                alert("❌ 生成失败：" + error.message);
+                console.error(error);
+            } finally {
+                btn.innerText = "🚀 一键生成 PPT";
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
